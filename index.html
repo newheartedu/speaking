@@ -1,1013 +1,818 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Everyday English Speaking Lab</title>
-    <style>
-        :root {
-            /* 配色 (Vibrant Blue & Energetic Orange) */
-            --primary-color: #2563EB;
-            --primary-hover: #1D4ED8;
-            --accent-color: #F59E0B;
-            --bg-color: #F3F4F6;
-            --card-bg: #FFFFFF;
-            --text-main: #1F2937;
-            --text-secondary: #4B5563;
-            --border-radius: 16px;
-            
-            /* Gamification Colors */
-            --xp-color: #10B981; /* Green for XP gain */
-            --level-bg: #E0E7FF;
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Heart, Music, Mic, Users, Calendar, ClipboardList, Send, 
+  CheckCircle, Sparkles, MessageCircle, Trash2, Edit, 
+  X, CheckSquare, AlignLeft, Type, AlertTriangle, Lock, FileText, Printer, Download, LogOut, ChevronLeft
+} from 'lucide-react';
+
+// --- Firebase Imports ---
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  getDocs,
+  Timestamp 
+} from 'firebase/firestore';
+
+// ==========================================
+// TODO: 請在此處填入您自己的 Firebase 設定
+// 您可以在 Firebase Console -> Project Settings 找到
+// ==========================================
+const firebaseConfig = {
+  apiKey: "請替換成您的_API_KEY",
+  authDomain: "您的專案ID.firebaseapp.com",
+  projectId: "您的專案ID",
+  storageBucket: "您的專案ID.appspot.com",
+  messagingSenderId: "您的SENDER_ID",
+  appId: "您的APP_ID"
+};
+
+// 初始化 Firebase (加入錯誤處理，避免設定為空時白畫面)
+let app, auth, db;
+try {
+  // 如果還沒設定 config，這裡會報錯，我們做個簡單的檢查
+  if (firebaseConfig.apiKey === "請替換成您的_API_KEY") {
+    console.warn("尚未設定 Firebase Config，請在程式碼中填入您的設定。");
+  } else {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
+} catch (error) {
+  console.error("Firebase 初始化失敗:", error);
+}
+
+const WeddingSurveyForm = () => {
+  // 1. 定義初始問卷結構
+  const initialSections = [
+    {
+      id: 'basic',
+      title: '基本資訊',
+      icon: ClipboardList,
+      questions: [
+        { id: 'b1', type: 'text', label: '新郎姓名' },
+        { id: 'b2', type: 'text', label: '新娘姓名' },
+        { id: 'b3', type: 'date', label: '婚禮日期' },
+        { id: 'b4', type: 'text', label: '婚禮舉行地點' }
+      ]
+    },
+    {
+      id: 'style',
+      title: '婚禮風格與氛圍',
+      icon: Heart,
+      questions: [
+        { 
+          id: 's1', type: 'checkbox', label: '您希望婚禮的整體氛圍是什麼樣的？(可複選)', 
+          options: ['優雅浪漫', '輕鬆幽默', '熱烈熱情', '正式莊重', '其他（請具體描述）'] 
+        },
+        { 
+          id: 's2', type: 'checkbox', label: '您希望主持人的風格是什麼樣的？(可複選)', 
+          options: ['輕鬆幽默，讓來賓開心', '正式莊重，尊重儀式感', '活潑熱情，讓氛圍更加熱烈', '輕快、自然，保持輕鬆的氛圍', '其他（請具體描述）'] 
+        },
+        { 
+          id: 's3', type: 'checkbox', label: '婚禮過程中，您希望主持人更多強調哪些方面？(可複選)', 
+          options: ['夫妻的愛情故事', '家庭與朋友的祝福', '婚禮儀式的莊重感', '互動遊戲或有趣的環節', '其他（請具體描述）'] 
+        },
+        { 
+          id: 's4', type: 'radio', label: '在婚禮上，您希望主持人如何與來賓互動？', 
+          options: ['輕鬆、隨和地與來賓互動', '鼓勵來賓參與某些環節', '保持較少互動，專注於主持', '其他（請具體描述）'] 
         }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+      ]
+    },
+    {
+      id: 'story',
+      title: '新人的背景與故事',
+      icon: Users,
+      questions: [
+        { id: 'st1', type: 'textarea', label: '新郎與新娘的相識過程是什麼？' },
+        { id: 'st2', type: 'textarea', label: '彼此認為最浪漫的事' },
+        { id: 'st3', type: 'textarea', label: '交往多久? 工作、平常相處是遠距離嗎？' },
+        { id: 'st4', type: 'textarea', label: '這一年來大概多久見一次？' },
+        { id: 'st5', type: 'textarea', label: '如何維繫彼此的感情？' },
+        { id: 'st6', type: 'textarea', label: '如何確定對方就是對的人？' },
+        { id: 'st7', type: 'textarea', label: '用一個狀態形容 對方在自己心中的樣子' },
+        { id: 'st8', type: 'textarea', label: '對方為自己做過最浪慢的事' },
+        { id: 'st9', type: 'textarea', label: '有沒有特別的家庭成員或朋友，希望在婚禮中被提到或特別感謝？' },
+        { id: 'st10', type: 'textarea', label: '您希望在婚禮中有沒有特別的驚喜或互動環節？' },
+        { id: 'st11', type: 'textarea', label: '婚禮中是否有特別的元素（例如：文化、家庭傳統、特定歌曲或習俗）您希望強調？' }
+      ]
+    },
+    {
+      id: 'flow',
+      title: '婚禮儀式與流程',
+      icon: Calendar,
+      questions: [
+        { 
+          id: 'f1', type: 'checkbox', label: '婚禮中的主要儀式，您希望強調哪些？(可複選)', 
+          options: ['誓言交換', '交換戒指', '第一支舞', '乾杯儀式', '父母感謝', '其他（請具體描述）'] 
+        },
+        { 
+          id: 'f2', type: 'radio', label: '婚禮儀式結束後，您是否希望主持人帶領其他活動（如：晚宴、遊戲、表演等）？', 
+          options: ['是', '否', '不確定'] 
+        },
+        { 
+          id: 'f3', type: 'radio', label: '您希望婚禮的流程緊湊還是稍微輕鬆一些？', 
+          options: ['緊湊，按時完成每個環節', '輕鬆，給來賓更多自由交流的時間'] 
         }
+      ]
+    },
+    {
+      id: 'req',
+      title: '婚禮主持的具體要求',
+      icon: Mic,
+      questions: [
+        { 
+          id: 'r1', type: 'checkbox', label: '您希望主持人在婚禮中使用哪些語言或語氣？(可複選)', 
+          options: ['輕鬆幽默，帶有笑點', '端莊正式，專注於儀式感', '感性、溫馨，注重情感表達', '其他（請具體描述）'] 
+        },
+        { 
+          id: 'r2', type: 'radio', label: '您是否希望主持人提前與您進行一對一的會議，了解婚禮的詳細安排？', 
+          options: ['是', '否', '無所謂'] 
+        },
+        { id: 'r3', type: 'textarea', label: '婚禮中是否有您希望避免的事情？' }
+      ]
+    },
+    {
+      id: 'music',
+      title: '婚禮的音樂與其他細節',
+      icon: Music,
+      questions: [
+        { id: 'm1', type: 'text', label: '有愛情主題曲嗎？' },
+        { id: 'm2', type: 'textarea', label: '平常都聽什麼歌？' },
+        { id: 'm3', type: 'textarea', label: '婚禮的歌單？' },
+        { id: 'm4', type: 'textarea', label: '您有沒有希望在婚禮中播放的特別影片或圖片？' },
+        { id: 'm5', type: 'textarea', label: '婚禮中是否有某些特定的主題或顏色，您希望主持人參考？' },
+        { id: 'm6', type: 'textarea', label: '您有沒有對婚禮流程中特定環節的時間長短有特別要求？' }
+      ]
+    },
+    {
+      id: 'other',
+      title: '其他建議與期望',
+      icon: MessageCircle,
+      questions: [
+        { id: 'o1', type: 'textarea', label: '對主持人有任何特殊的期望或要求嗎？' },
+        { id: 'o2', type: 'textarea', label: '是否有其他您認為非常重要的細節，主持人需要注意的地方？' }
+      ]
+    }
+  ];
 
-        body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans TC", Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            line-height: 1.7;
-            font-size: 18px;
-            padding-bottom: 60px;
-            user-select: none;
+  // --- States ---
+  const [sections, setSections] = useState(initialSections);
+  const [formData, setFormData] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Auth & Admin States
+  const [user, setUser] = useState(null);
+  const [isAdminMode, setIsAdminMode] = useState(false); 
+  const [isLoggedIn, setIsLoggedIn] = useState(false); 
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState(false);
+  
+  // Admin Data States
+  const [responses, setResponses] = useState([]);
+  const [selectedResponse, setSelectedResponse] = useState(null);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+
+  // --- Firebase Auth Effect (Standard Anonymous Auth) ---
+  useEffect(() => {
+    if (!auth) return; // 如果沒有設定 config，直接跳過
+
+    const initAuth = async () => {
+      try {
+        // 標準的匿名登入
+        await signInAnonymously(auth);
+      } catch (error) {
+        console.error("登入失敗 (請確認 Firebase Console Authentication 有開啟匿名登入):", error);
+      }
+    };
+    initAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // --- Functions ---
+
+  const handleInputChange = (questionId, value) => {
+    setFormData(prev => ({ ...prev, [questionId]: value }));
+  };
+
+  const handleCheckboxChange = (questionId, option, checked) => {
+    setFormData(prev => {
+      const currentValues = prev[questionId] || [];
+      const isOther = option.startsWith('其他') || option.startsWith('我想要補充');
+      const otherPrefix = '我想要補充: ';
+      
+      let newValues;
+      if (checked) {
+        if (isOther) {
+           const existingOther = currentValues.find(v => v.startsWith(otherPrefix) || v === option);
+           if(existingOther) return prev; 
+           newValues = [...currentValues, option];
+        } else {
+           newValues = [...currentValues, option];
         }
-
-        /* --- Icons (SVG) --- */
-        .icon { width: 20px; height: 20px; fill: currentColor; vertical-align: middle; }
-        .icon-lg { width: 24px; height: 24px; }
-
-        /* --- Gamification UI: Floating XP --- */
-        .float-xp {
-            position: absolute;
-            color: var(--xp-color);
-            font-weight: 800;
-            font-size: 1.2rem;
-            pointer-events: none;
-            animation: floatUp 1s ease-out forwards;
-            z-index: 9999;
-            text-shadow: 0 2px 4px rgba(255,255,255,0.8);
+      } else {
+        if (isOther) {
+          newValues = currentValues.filter(v => !v.startsWith(otherPrefix) && !v.startsWith('其他'));
+        } else {
+          newValues = currentValues.filter(v => v !== option);
         }
+      }
+      return { ...prev, [questionId]: newValues };
+    });
+  };
 
-        @keyframes floatUp {
-            0% { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-40px) scale(1.2); }
+  // Submit to Firebase
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) {
+      alert("尚未連線到資料庫，請檢查您的 Firebase 設定或網路連線。");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const dataToSave = {
+        formData,
+        submittedAt: Timestamp.now(),
+        userId: user.uid,
+        groomName: formData['b1'] || '未填寫',
+        brideName: formData['b2'] || '未填寫',
+        weddingDate: formData['b3'] || '未填寫'
+      };
+
+      // 改用標準的 collection 路徑，不再依賴 appId 變數
+      await addDoc(collection(db, 'wedding_responses'), dataToSave);
+      
+      setSubmitted(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      console.error("Error submitting form: ", error);
+      alert("提交失敗，請檢查 Firestore 是否已建立以及規則設定是否正確。");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // --- Admin Functions ---
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (passwordInput === '0903') {
+      setIsLoggedIn(true);
+      setLoginError(false);
+      fetchResponses();
+    } else {
+      setLoginError(true);
+    }
+  };
+
+  const fetchResponses = async () => {
+    if (!user) return;
+    setIsLoadingData(true);
+    try {
+      // 改用標準的 collection 路徑
+      const querySnapshot = await getDocs(collection(db, 'wedding_responses'));
+      const fetchedData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      fetchedData.sort((a, b) => b.submittedAt.seconds - a.submittedAt.seconds);
+      
+      setResponses(fetchedData);
+    } catch (error) {
+      console.error("Error fetching data: ", error);
+      alert("讀取資料失敗，請確認 Firestore 權限規則。");
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
+
+  // Generate Word Document
+  const exportToWord = (response) => {
+    const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' 
+      xmlns:w='urn:schemas-microsoft-com:office:word' 
+      xmlns='http://www.w3.org/TR/REC-html40'>
+      <head><meta charset='utf-8'><title>婚禮問卷資料</title>
+      <style>body{font-family: "Microsoft JhengHei", sans-serif;}</style>
+      </head><body>`;
+    
+    let body = `<h1>${response.groomName} & ${response.brideName} 婚禮主持問卷</h1>`;
+    body += `<p>婚禮日期: ${response.weddingDate}</p><hr/>`;
+
+    sections.forEach(section => {
+      body += `<h3>${section.title}</h3>`;
+      section.questions.forEach(q => {
+        const answer = response.formData[q.id];
+        let answerText = '未填寫';
+        if (Array.isArray(answer)) {
+          answerText = answer.join(', ');
+        } else if (answer) {
+          answerText = answer;
         }
+        body += `<p><b>${q.label}</b><br/>${answerText}</p>`;
+      });
+      body += `<br/>`;
+    });
 
-        /* --- Header & Tabs & Stats --- */
-        header {
-            background-color: #fff;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
+    const footer = "</body></html>";
+    const sourceHTML = header + body + footer;
+    
+    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+    const fileDownload = document.createElement("a");
+    document.body.appendChild(fileDownload);
+    fileDownload.href = source;
+    fileDownload.download = `${response.groomName}_${response.brideName}_婚禮問卷.doc`;
+    fileDownload.click();
+    document.body.removeChild(fileDownload);
+  };
 
-        .header-top {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1rem 1.2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #f0f0f0;
-        }
+  // Print in New Window Function
+  const printResponse = (response) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('請允許開啟彈出視窗以進行列印');
+      return;
+    }
 
-        .logo {
-            font-size: 1.4rem;
-            font-weight: 800;
-            color: var(--primary-color);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${response.groomName}_${response.brideName}_婚禮問卷</title>
+          <style>
+            body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; padding: 40px; color: #333; line-height: 1.6; }
+            h1 { text-align: center; font-size: 26px; margin-bottom: 10px; font-weight: bold; }
+            .meta { text-align: center; color: #666; font-size: 14px; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+            .section { margin-bottom: 30px; page-break-inside: avoid; }
+            .section-title { 
+              font-size: 18px; 
+              font-weight: bold; 
+              color: #e11d48; 
+              margin-bottom: 15px; 
+              border-left: 5px solid #e11d48; 
+              padding-left: 10px; 
+              background: #fff1f2; 
+              padding-top: 5px; 
+              padding-bottom: 5px; 
+            }
+            .question-block { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
+            .question-block:last-child { border-bottom: none; }
+            .q-label { font-weight: bold; font-size: 15px; margin-bottom: 6px; color: #1f2937; }
+            .q-answer { 
+              padding: 8px 12px; 
+              background: #f9fafb; 
+              border-radius: 6px; 
+              white-space: pre-wrap; 
+              font-size: 14px; 
+              color: #4b5563;
+            }
+            ul { margin: 0; padding-left: 20px; }
+            li { margin-bottom: 4px; }
+            @media print {
+              body { padding: 0; -webkit-print-color-adjust: exact; }
+              .section-title { -webkit-print-color-adjust: exact; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${response.groomName} & ${response.brideName} 婚禮主持問卷</h1>
+          <div class="meta">
+            婚禮日期: ${response.weddingDate} | 
+            提交時間: ${response.submittedAt?.seconds ? new Date(response.submittedAt.seconds * 1000).toLocaleString('zh-TW') : '未知'}
+          </div>
 
-        /* Career Stats Bar */
-        .career-stats {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            background: var(--level-bg);
-            padding: 6px 16px;
-            border-radius: 30px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #3730a3;
-        }
-
-        .level-badge {
-            background: var(--accent-color);
-            color: white;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .xp-bar-container {
-            width: 100px;
-            height: 8px;
-            background: #cbd5e1;
-            border-radius: 4px;
-            overflow: hidden;
-            display: none; /* Hidden on very small screens */
-        }
-        @media(min-width: 480px) { .xp-bar-container { display: block; } }
-
-        .xp-bar-fill {
-            height: 100%;
-            background: var(--primary-color);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
-        /* Navigation */
-        .header-nav {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0.5rem 1.2rem;
-        }
-
-        .nav-tabs {
-            display: flex;
-            gap: 10px;
-            overflow-x: auto;
-            padding-bottom: 5px;
-        }
-
-        .tab-btn {
-            background: transparent;
-            border: none;
-            padding: 10px 20px;
-            font-size: 1rem;
-            cursor: pointer;
-            border-radius: 50px;
-            color: var(--text-secondary);
-            font-weight: 700;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-
-        .tab-btn:hover { background-color: #EFF6FF; color: var(--primary-color); }
-
-        .tab-btn.active {
-            background-color: var(--primary-color);
-            color: white;
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-        }
-
-        /* --- Main Content Layout --- */
-        main {
-            max-width: 1200px;
-            margin: 2rem auto;
-            padding: 0 1.5rem;
-        }
-
-        .section-view { display: none; animation: fadeIn 0.4s ease; }
-        .section-view.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* --- UI Components --- */
-        .btn {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .btn:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
-        .btn:active { transform: scale(0.98); }
-
-        .btn-outline {
-            background-color: white;
-            border: 2px solid var(--primary-color);
-            color: var(--primary-color);
-        }
-        .btn-outline:hover { background-color: #EFF6FF; color: var(--primary-hover); }
-        
-        .btn-small { padding: 6px 12px; font-size: 0.9rem; }
-        .btn-icon-only { padding: 8px; border-radius: 50%; width: 40px; height: 40px; display: flex; justify-content: center; align-items: center; }
-
-        .card {
-            background: var(--card-bg);
-            border-radius: var(--border-radius);
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-            padding: 1.5rem;
-            border: 1px solid rgba(0,0,0,0.03);
-            display: flex;
-            flex-direction: column;
-        }
-        .section-title { margin-bottom: 1.5rem; color: var(--text-main); font-size: 1.8rem; font-weight: 800; position: relative; padding-left: 15px; }
-        .section-title::before { content: ''; position: absolute; left: 0; top: 15%; height: 70%; width: 6px; background: var(--accent-color); border-radius: 4px; }
-
-        /* --- Part 1 Layout --- */
-        .part1-container { display: flex; flex-direction: column; gap: 2rem; }
-        .topic-sidebar {
-            width: 100%;
-            background: white;
-            padding: 1.5rem;
-            border-radius: var(--border-radius);
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-            max-height: 350px; 
-            overflow-y: auto;
-            border: 1px solid #e5e7eb;
-        }
-        .topic-content { flex: 1; }
-        
-        #part1QuestionsArea { display: flex; flex-direction: column; gap: 1.5rem; }
-
-        /* Desktop Layout Rules */
-        @media (min-width: 850px) {
-            .part1-container { flex-direction: row; }
-            .topic-sidebar { width: 320px; max-height: calc(100vh - 150px); position: sticky; top: 130px; }
-        }
-
-        .topic-btn {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
-            text-align: left;
-            padding: 12px 16px;
-            border: none;
-            background: none;
-            cursor: pointer;
-            border-radius: 8px;
-            margin-bottom: 4px;
-            color: var(--text-secondary);
-            font-size: 1rem;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-        .topic-btn:hover { background-color: #F3F4F6; }
-        .topic-btn.active { background-color: #EFF6FF; color: var(--primary-color); font-weight: 700; border-left: 4px solid var(--primary-color); }
-        
-        .check-icon { opacity: 0; color: var(--xp-color); transition: opacity 0.3s; }
-        .topic-btn.mastered .check-icon { opacity: 1; }
-
-        .qa-card { border-left: 6px solid var(--primary-color); }
-        .qa-question { font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; color: #111; flex-grow: 1; }
-        
-        .qa-answer-box { margin-top: 1.5rem; display: flex; flex-direction: column; gap: 15px; }
-        .qa-answer-box.hidden { display: none !important; }
-
-        .answer-block { padding: 1rem; border-radius: 10px; border: 1px solid #eee; background: #fafafa; }
-        .level-tag { font-size: 0.75rem; font-weight: 800; padding: 4px 8px; border-radius: 20px; text-transform: uppercase; display: inline-block; margin-bottom: 6px; }
-        .level-tag.l1 { background-color: #DCFCE7; color: #166534; }
-        .level-tag.l2 { background-color: #FFEDD5; color: #9A3412; }
-        .qa-answer-text { font-size: 1.1rem; color: #334155; margin-bottom: 8px; font-weight: 500; }
-
-        /* --- Part 2 Layout --- */
-        .controls-bar {
-            background: white; padding: 1.5rem; border-radius: var(--border-radius);
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 2rem;
-            display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; border: 1px solid #e5e7eb;
-        }
-        .scenario-select { flex: 1; min-width: 200px; padding: 10px; border-radius: 8px; border: 2px solid #E5E7EB; font-size: 1rem; }
-        .speed-control { display: flex; align-items: center; gap: 10px; font-weight: 600; }
-        input[type="range"] { accent-color: var(--primary-color); cursor: pointer; height: 6px; }
-
-        .sentence-list { display: grid; gap: 1rem; }
-        .sentence-card { display: flex; align-items: center; justify-content: space-between; background: white; padding: 1.2rem 1.5rem; border-radius: var(--border-radius); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .sentence-text { font-size: 1.25rem; flex: 1; padding-right: 1rem; font-weight: 500; color: #1F2937; transition: all 0.3s; }
-        .blur-text { opacity: 0.1; filter: blur(5px); user-select: none; }
-
-        /* --- Part 3 Layout --- */
-        .bubble { max-width: 85%; margin-bottom: 1.5rem; padding: 1.2rem; border-radius: 16px; position: relative; line-height: 1.6; font-size: 1.2rem; }
-        .bubble.A { background-color: #EFF6FF; margin-right: auto; border-left: 5px solid var(--primary-color); color: #1E3A8A; }
-        .bubble.B { background-color: #FFF7ED; margin-left: auto; border-right: 5px solid var(--accent-color); color: #7C2D12; }
-        .speaker-label { font-size: 0.8rem; font-weight: 800; text-transform: uppercase; margin-bottom: 5px; display: block; opacity: 0.7; }
-
-        .recording-studio {
-            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
-            border: 2px solid #E5E7EB; padding: 2rem; border-radius: var(--border-radius);
-            text-align: center; margin-top: 3rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        }
-        .rec-btn {
-            width: 70px; height: 70px; border-radius: 50%; background: #DC2626; border: 4px solid #fff;
-            color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
-            display: inline-flex; justify-content: center; align-items: center; transition: transform 0.2s;
-        }
-        .rec-btn.recording { animation: pulse 1.5s infinite; background: #991B1B; }
-        .rec-btn:active { transform: scale(0.95); }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(220, 38, 38, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); } }
-
-        /* --- Utility --- */
-        .hidden { display: none !important; }
-        .error-msg { background: #FEF2F2; color: #991B1B; padding: 10px; border-radius: 8px; margin-bottom: 15px; display: none; border: 1px solid #FECACA; }
-        
-        /* Level Up Toast */
-        #levelup-toast {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
-            background: rgba(0,0,0,0.9); color: #FFD700; padding: 20px 40px; border-radius: 16px;
-            text-align: center; z-index: 10000; opacity: 0; pointer-events: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-        #levelup-toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        .toast-title { font-size: 2rem; font-weight: 800; margin-bottom: 10px; display: block; }
-        .toast-sub { font-size: 1.2rem; color: white; }
-
-    </style>
-</head>
-<body>
-
-    <!-- SVG Definitions (Hidden) -->
-    <svg style="display: none;">
-        <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
-        <symbol id="icon-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
-        <symbol id="icon-mic" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></symbol>
-        <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></symbol>
-        <symbol id="icon-volume" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></symbol>
-        <symbol id="icon-check" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
-    </svg>
-
-    <header>
-        <div class="header-top">
-            <div class="logo">
-                <svg class="icon-lg"><use href="#icon-mic"></use></svg> 
-                Speaking Lab
-            </div>
-            <!-- Gamification Stats -->
-            <div class="career-stats">
-                <span id="userTitle">實習生 (Intern)</span>
-                <span class="level-badge" id="userLevel">LV 1</span>
-                <div class="xp-bar-container">
-                    <div id="xpBar" class="xp-bar-fill"></div>
-                </div>
-            </div>
-        </div>
-        <div class="header-nav">
-            <nav class="nav-tabs">
-                <button class="tab-btn active" onclick="switchTab('part1')">Part 1: Q&A</button>
-                <button class="tab-btn" onclick="switchTab('part2')">Part 2: Listen & Repeat</button>
-                <button class="tab-btn" onclick="switchTab('part3')">Part 3: Dialogues</button>
-            </nav>
-        </div>
-    </header>
-
-    <main>
-        <!-- PART 1 -->
-        <section id="part1" class="section-view active">
-            <h2 class="section-title">Daily Life Q&A (生活問答)</h2>
-            <div class="part1-container">
-                <div class="topic-sidebar" id="part1TopicList">
-                    <!-- Topics injected here -->
-                </div>
-                <div class="topic-content">
-                    <div id="part1BrowserWarning" class="error-msg"></div>
-                    <h3 id="part1CurrentTopicTitle" style="margin-bottom: 1.5rem; color: var(--primary-color); font-size: 1.6rem;">Select a topic</h3>
-                    <div id="part1QuestionsArea"></div>
-                </div>
-            </div>
-        </section>
-
-        <!-- PART 2 -->
-        <section id="part2" class="section-view">
-            <h2 class="section-title">Listen & Repeat (跟讀練習)</h2>
-            <div class="controls-bar">
-                <div style="flex: 1;">
-                    <label style="font-weight: 700; font-size: 0.9rem; color:#666;">Select Topic (依難度分級):</label>
-                    <select id="part2TopicSelect" class="scenario-select"></select>
-                </div>
-                <div class="speed-control">
-                    <span>Speed: <span id="speedValue" style="color: var(--primary-color);">1.0x</span></span>
-                    <input type="range" id="speedRange" min="0.5" max="1.5" step="0.1" value="1.0">
-                </div>
-                <button class="btn btn-outline" onclick="togglePart2TextAll(event)">
-                    <svg class="icon"><use href="#icon-eye"></use></svg> Toggle All Text
-                </button>
-            </div>
-            <div id="part2Content" class="sentence-list"></div>
-        </section>
-
-        <!-- PART 3 -->
-        <section id="part3" class="section-view">
-            <h2 class="section-title">Real-life Dialogues (實境對話)</h2>
-            <div class="scenario-selector">
-                <label style="font-weight: 700; font-size: 0.9rem; color:#666;">Choose Scenario (分級):</label>
-                <select id="part3Select" class="scenario-select" onchange="loadScenario()"></select>
-            </div>
-            <div class="controls-bar" style="justify-content: flex-start; gap: 10px;">
-                <button class="btn" onclick="playCurrentDialogue(event)">
-                    <svg class="icon"><use href="#icon-play"></use></svg> Play
-                </button>
-                <button class="btn btn-outline" onclick="stopAudio()">
-                    <svg class="icon"><use href="#icon-stop"></use></svg> Stop
-                </button>
-                <button class="btn btn-outline" onclick="toggleDialogueText(event)">
-                    <svg class="icon"><use href="#icon-eye"></use></svg> Text
-                </button>
-            </div>
-            <div id="dialogueDisplay" class="dialogue-area"></div>
-            <div class="recording-studio">
-                <h3 style="font-size: 1.4rem; margin-bottom: 0.5rem;">Recording Studio</h3>
-                <p style="color: #666; margin-bottom: 1.5rem;">Record yourself speaking a role. (XP Boost!)</p>
-                <div id="recStatus" class="recording-status"></div>
-                <div style="display: flex; justify-content: center; gap: 30px; align-items: center;">
-                    <button id="recordBtn" class="rec-btn" title="Start Recording">
-                        <svg class="icon" style="width: 30px; height: 30px;"><use href="#icon-mic"></use></svg>
-                    </button>
-                    <div id="audioPlaybackArea"></div>
-                </div>
-                <div id="recError" class="error-msg" style="margin-top:20px;"></div>
-            </div>
-        </section>
-    </main>
-
-    <!-- Level Up Toast Overlay -->
-    <div id="levelup-toast">
-        <span class="toast-title">PROMOTED! 升遷了！🚀</span>
-        <span class="toast-sub" id="new-title-display">Junior Associate</span>
-    </div>
-
-    <script>
-        // --- GAMIFICATION SYSTEM ---
-        const Game = {
-            data: {
-                xp: 0,
-                level: 1,
-                title: "實習生 (Intern)",
-                completedTopics: [] // stores topic strings
-            },
-            titles: [
-                "實習生 (Intern)", 
-                "初階專員 (Junior)", 
-                "資深專員 (Senior)", 
-                "組長 (Team Lead)", 
-                "經理 (Manager)", 
-                "總監 (Director)", 
-                "副總裁 (VP)", 
-                "總裁 (President)", 
-                "執行長 (CEO)", 
-                "董事長 (Chairman)"
-            ],
-            
-            init() {
-                const saved = localStorage.getItem('englishLabData');
-                if (saved) {
-                    this.data = JSON.parse(saved);
-                }
-                this.updateUI();
-            },
-
-            addXP(amount, event) {
-                this.data.xp += amount;
+          ${sections.map(section => `
+            <div class="section">
+              <div class="section-title">${section.title}</div>
+              ${section.questions.map(q => {
+                const answer = response.formData[q.id];
+                let displayAnswer = '<span style="color: #999; font-style: italic;">未填寫</span>';
                 
-                // Show floating text
-                if(event) this.showFloatText(amount, event);
-
-                // Level Calc (Simple logic: Level * 100 XP required)
-                const needed = this.data.level * 100;
-                if (this.data.xp >= needed) {
-                    this.levelUp();
+                if (Array.isArray(answer) && answer.length > 0) {
+                  displayAnswer = `<ul>${answer.map(a => `<li>${a}</li>`).join('')}</ul>`;
+                } else if (answer) {
+                  displayAnswer = answer;
                 }
-
-                this.save();
-                this.updateUI();
-            },
-
-            levelUp() {
-                this.data.xp = 0; // Reset XP bar (or keep accumulating, simplified here)
-                this.data.level++;
-                const titleIndex = Math.min(this.data.level - 1, this.titles.length - 1);
-                this.data.title = this.titles[titleIndex];
                 
-                // Trigger Toast
-                const toast = document.getElementById('levelup-toast');
-                document.getElementById('new-title-display').innerText = "You are now: " + this.data.title;
-                toast.classList.add('show');
-                setTimeout(() => toast.classList.remove('show'), 3000);
-            },
-
-            markTopicStarted(topicName) {
-                if (!this.data.completedTopics.includes(topicName)) {
-                    this.data.completedTopics.push(topicName);
-                    this.save();
-                    this.updateUI();
-                }
-            },
-
-            save() {
-                localStorage.setItem('englishLabData', JSON.stringify(this.data));
-            },
-
-            updateUI() {
-                document.getElementById('userLevel').innerText = `LV ${this.data.level}`;
-                document.getElementById('userTitle').innerText = this.data.title;
-                
-                // Update Bar
-                const needed = this.data.level * 100;
-                const pct = Math.min(100, (this.data.xp / needed) * 100);
-                document.getElementById('xpBar').style.width = `${pct}%`;
-
-                // Update Topic Checks
-                document.querySelectorAll('.topic-btn').forEach(btn => {
-                    if(this.data.completedTopics.some(t => btn.innerText.includes(t))) {
-                        btn.classList.add('mastered');
-                    }
-                });
-            },
-
-            showFloatText(amount, event) {
-                // Get click coordinates
-                let x, y;
-                if(event.clientX) {
-                    x = event.clientX;
-                    y = event.clientY;
-                } else {
-                    // Fallback for non-click events
-                    const rect = event.target.getBoundingClientRect();
-                    x = rect.left + rect.width / 2;
-                    y = rect.top;
-                }
-
-                const el = document.createElement('div');
-                el.className = 'float-xp';
-                el.innerText = `+${amount} XP`;
-                el.style.left = x + 'px';
-                el.style.top = y + 'px';
-                document.body.appendChild(el);
-
-                setTimeout(() => el.remove(), 1000);
-            }
-        };
-
-        // --- DATA ---
-        // Part 1: Q&A - Unchanged
-        const part1Data = [
-            { topic: "Introducing Yourself (自我介紹)", questions: [ { q: "What is your name?", a1: "My name is Kevin.", a2: "I'm Kevin, but you can call me Kev." }, { q: "Where are you from?", a1: "I am from Taiwan.", a2: "I'm originally from Taiwan, but I live in Taipei now." }, { q: "How old are you?", a1: "I am 32 years old.", a2: "I just turned 32 last month." }, { q: "What do you do for a living?", a1: "I work in an office.", a2: "I work as a marketing manager for a tech company." }, { q: "What languages can you speak?", a1: "I speak Chinese and English.", a2: "I speak Mandarin Chinese fluently and I am learning English." } ] },
-            { topic: "Family (家庭)", questions: [ { q: "Do you have any brothers or sisters?", a1: "I have one brother.", a2: "I have an older brother who works nearby." }, { q: "Are you married?", a1: "No, I am single.", a2: "No, I'm single at the moment but focusing on my career." }, { q: "Do you live with your parents?", a1: "No, I live alone.", a2: "No, I live in a small apartment about 20 minutes away." }, { q: "How many people are in your family?", a1: "There are four people.", a2: "There are four of us: my parents, my brother, and me." }, { q: "Who usually cooks dinner in your family?", a1: "My mother cooks.", a2: "My mother usually cooks dinner, but I help on weekends." } ] },
-            { topic: "Daily Routine (日常作息)", questions: [ { q: "What time do you usually wake up?", a1: "I wake up at 7 AM.", a2: "I usually set my alarm for 7:00 AM so I have time to get ready." }, { q: "What do you usually have for breakfast?", a1: "I have toast and coffee.", a2: "I typically just have a slice of toast and a strong cup of coffee." }, { q: "How do you commute to work?", a1: "I take the MRT.", a2: "I take the MRT because it is faster than driving." }, { q: "When do you usually finish work?", a1: "I finish at 6 PM.", a2: "I officially finish at 6 PM, but I often stay a bit late." }, { q: "What do you do before going to sleep?", a1: "I look at my phone.", a2: "I usually scroll through social media or read a book." } ] },
-            { topic: "Food & Drinks (飲食)", questions: [ { q: "What is your favorite food?", a1: "I like beef noodles.", a2: "My favorite food is spicy beef noodle soup." }, { q: "Do you know how to cook?", a1: "Yes, simple food.", a2: "I can cook simple dishes like pasta and fried rice." }, { q: "Do you like eating spicy food?", a1: "No, I do not.", a2: "Not really, I cannot handle spicy food very well." }, { q: "What do you drink in the morning?", a1: "I drink black tea.", a2: "I always start my morning with a cup of hot black tea." }, { q: "Do you prefer eating out or cooking at home?", a1: "I prefer eating out.", a2: "I prefer eating out because it saves me a lot of time." } ] },
-            { topic: "Travel (旅遊)", questions: [ { q: "Do you like to travel?", a1: "Yes, I love it.", a2: "I absolutely love exploring new places and cultures." }, { q: "Where was the last place you visited?", a1: "I went to Japan.", a2: "I visited Tokyo with my family last spring." }, { q: "Do you prefer hotels or hostels?", a1: "I prefer hotels.", a2: "I prefer staying in hotels for the comfort and privacy." }, { q: "How do you usually travel?", a1: "I go by plane.", a2: "I always travel by plane when going long distances." }, { q: "What is your dream travel destination?", a1: "I want to go to Paris.", a2: "My dream is to backpack through France, especially Paris." } ] },
-            { topic: "Shopping (購物)", questions: [ { q: "Do you enjoy shopping?", a1: "Yes, I like it.", a2: "I enjoy shopping, especially when there is a big sale." }, { q: "Where do you usually shop?", a1: "At the mall.", a2: "I usually go to the department store in the city center." }, { q: "Do you shop online often?", a1: "Yes, I buy books.", a2: "I buy electronics and books online quite often." }, { q: "Do you think this is expensive?", a1: "Yes, a little bit.", a2: "It looks a little pricey for my budget right now." }, { q: "How do you usually pay?", a1: "I use a credit card.", a2: "I usually pay by credit card to collect points." } ] },
-            { topic: "Weather (天氣)", questions: [ { q: "What is the weather like today?", a1: "It is sunny.", a2: "It is beautiful and sunny outside right now." }, { q: "What is your favorite season?", a1: "I like autumn.", a2: "I love autumn because the weather is cool and dry." }, { q: "Does it rain often here?", a1: "Yes, in summer.", a2: "It rains a lot during the summer typhoon season." }, { q: "What do you do on rainy days?", a1: "I stay at home.", a2: "I prefer to stay cozy at home and watch movies." }, { q: "Is it cold in the winter?", a1: "No, not very cold.", a2: "It's not freezing, but it can feel quite chilly." } ] },
-            { topic: "Health (健康)", questions: [ { q: "How are you feeling today?", a1: "I feel great.", a2: "I feel pretty energetic today, thanks for asking." }, { q: "Do you catch colds often?", a1: "No, rarely.", a2: "No, I have a strong immune system so I rarely get sick." }, { q: "What do you do when you have a headache?", a1: "I go to sleep.", a2: "I usually take some medicine and try to take a nap." }, { q: "Are you feeling stressed?", a1: "Yes, a little.", a2: "Work has been quite stressful lately." }, { q: "Do you exercise regularly?", a1: "Yes, I go jogging.", a2: "Yes, I try to go jogging three times a week." } ] },
-            { topic: "City Life (城市生活)", questions: [ { q: "Is there a bank nearby?", a1: "Yes, around the corner.", a2: "Yes, there is a bank just around the corner." }, { q: "Is there a park near your house?", a1: "Yes, a nice park.", a2: "Yes, there is a lovely park about two blocks away." }, { q: "Is the city crowded?", a1: "Yes, very crowded.", a2: "It gets very crowded, especially during rush hour." }, { q: "What is your city famous for?", a1: "The night market.", a2: "Our city is famous for its lively night markets and food." }, { q: "Is it safe to walk at night?", a1: "Yes, it is safe.", a2: "Yes, it is generally very safe to walk around at night." } ] },
-            { topic: "Work Life (職場生活)", questions: [ { q: "What is your job?", a1: "I am an engineer.", a2: "I work as a software engineer for a tech firm." }, { q: "Do you like your job?", a1: "Yes, it is good.", a2: "Yes, I enjoy it because I like solving problems." }, { q: "Is your office big?", a1: "It is medium-sized.", a2: "It is a medium-sized office with about 20 people." }, { q: "Do you have meetings often?", a1: "Yes, on Mondays.", a2: "We have a team meeting every Monday morning." }, { q: "Do you work overtime?", a1: "Sometimes.", a2: "Occasionally I have to work late to meet deadlines." } ] }
-        ];
-
-        // Part 2: Progressive Difficulty (Level 1 to Level 6)
-        // Groups of 5 topics per level. Length increases 3-5 words -> max 8 words (hardest).
-        const part2Data = [
-            // LEVEL 1: Topics 1-5 (3-4 words)
-            { topic: "Intro (L1)", level: 1, sentences: ["My name is Kevin.", "I am from Taiwan.", "Nice to meet you.", "I work in marketing.", "I like my job."] },
-            { topic: "Family (L1)", level: 1, sentences: ["I love my family.", "My mom is kind.", "We live together.", "I have a brother.", "My dad is funny."] },
-            { topic: "Numbers (L1)", level: 1, sentences: ["One, two, three.", "I have two cats.", "It is five o'clock.", "Give me one please.", "Ten dollars only."] },
-            { topic: "Colors (L1)", level: 1, sentences: ["The sky is blue.", "I like red apples.", "My car is white.", "The grass is green.", "Is it black?"] },
-            { topic: "Actions (L1)", level: 1, sentences: ["I open the door.", "Please sit down.", "I drink water.", "She walks fast.", "We eat lunch."] },
-            
-            // LEVEL 2: Topics 6-10 (4-5 words)
-            { topic: "Routine (L2)", level: 2, sentences: ["I wake up very early.", "I drink hot coffee.", "I take the bus.", "I go to sleep.", "I brush my teeth."] },
-            { topic: "Food (L2)", level: 2, sentences: ["This soup is delicious.", "I do not like spice.", "I want some water.", "The beef is good.", "Can I have rice?"] },
-            { topic: "Time (L2)", level: 2, sentences: ["What time is it?", "It is almost noon.", "I am late today.", "See you tomorrow morning.", "Time goes very fast."] },
-            { topic: "Weather (L2)", level: 2, sentences: ["It is raining today.", "The sun is hot.", "I need an umbrella.", "Winter is coming soon.", "The wind is cold."] },
-            { topic: "Home (L2)", level: 2, sentences: ["My room is clean.", "I wash the dishes.", "Close the window please.", "Where is my key?", "I am going home."] },
-
-            // LEVEL 3: Topics 11-15 (5-6 words)
-            { topic: "Hobbies (L3)", level: 3, sentences: ["I like reading books.", "He plays video games.", "Painting is very relaxing.", "Do you play tennis?", "I watch movies often."] },
-            { topic: "Friends (L3)", level: 3, sentences: ["She is my best friend.", "We hang out on weekends.", "He is very funny.", "I trust my friends.", "Let's go to the movies."] },
-            { topic: "Phone (L3)", level: 3, sentences: ["My battery is very low.", "Can I use your charger?", "The signal is weak.", "Please send me a text.", "I saw it online."] },
-            { topic: "Weekend (L3)", level: 3, sentences: ["I sleep late on weekends.", "We went to the park.", "I did nothing special.", "Sunday is for resting.", "Did you have fun?"] },
-            { topic: "Feelings (L3)", level: 3, sentences: ["I feel very happy today.", "Why are you sad?", "I am a little tired.", "She is always smiling.", "Do not be angry."] },
-
-            // LEVEL 4: Topics 16-20 (6-7 words)
-            { topic: "Directions (L4)", level: 4, sentences: ["Turn left at the corner.", "Go straight for two blocks.", "The bank is on the right.", "Is the station far away?", "You can take a taxi."] },
-            { topic: "Transport (L4)", level: 4, sentences: ["The train is always late.", "I missed the bus today.", "Taxi fares are very high.", "Please fasten your seatbelt.", "Is there a parking lot?"] },
-            { topic: "Hotel (L4)", level: 4, sentences: ["I want to book a room.", "Is breakfast included in the price?", "I need a wake-up call.", "The view is very nice.", "Here is your room key."] },
-            { topic: "Shopping (L4)", level: 4, sentences: ["How much does this cost?", "Do you have a larger size?", "Can I pay by card?", "It is too expensive for me.", "Where is the fitting room?"] },
-            { topic: "City (L4)", level: 4, sentences: ["The city is very busy.", "There are many tall buildings.", "The streets are always crowded.", "I take the subway daily.", "The nightlife is exciting here."] },
-
-            // LEVEL 5: Topics 21-25 (6-8 words)
-            { topic: "Jobs (L5)", level: 5, sentences: ["I am looking for a job.", "My boss is very busy.", "I have a meeting today.", "The project is due tomorrow.", "I work in a large team."] },
-            { topic: "Office (L5)", level: 5, sentences: ["The printer is not working.", "Can you send me the file?", "We need to discuss this.", "Let's take a short break.", "I am writing a report."] },
-            { topic: "Past (L5)", level: 5, sentences: ["I went there yesterday morning.", "It was a big mistake.", "I had a really great time.", "I learned a valuable lesson.", "Have you been there before?"] },
-            { topic: "Future (L5)", level: 5, sentences: ["I will travel next year.", "What are your future plans?", "I hope to succeed soon.", "We are going to move.", "Time flies very fast now."] },
-            { topic: "Money (L5)", level: 5, sentences: ["I need to save money.", "Can you give a discount?", "I lost my wallet yesterday.", "Money is not everything here.", "Keep the change for you."] },
-
-            // LEVEL 6: Topics 26-30 (7-8 words, complex concepts)
-            { topic: "Opinions (L6)", level: 6, sentences: ["I agree with your opinion.", "I do not think so.", "That is a very good idea.", "It does not matter to me.", "What do you think about it?"] },
-            { topic: "Agreement (L6)", level: 6, sentences: ["You are absolutely right about that.", "I see your point clearly.", "We are on the same page.", "I beg to differ with you.", "Let's agree to disagree now."] },
-            { topic: "Problems (L6)", level: 6, sentences: ["Can you help me fix this?", "I have a serious problem.", "Everything will be fine soon.", "Thank you for your kind help.", "I do not know the answer."] },
-            { topic: "News (L6)", level: 6, sentences: ["Did you hear the news?", "It was on TV yesterday.", "I read it in the paper.", "That is very interesting news.", "I follow current events daily."] },
-            { topic: "Culture (L6)", level: 6, sentences: ["The culture here is unique.", "People are very friendly here.", "I love the local traditions.", "Respect is important in culture.", "Food is part of culture."] }
-        ];
-
-        // Part 3: Real-life Dialogues (3 Levels: Beginner, Intermediate, Advanced)
-        const part3Data = [
-            // LEVEL 1: Beginner (Basic Needs)
-            { 
-                title: "Meeting New People", 
-                level: "Beginner (初級)",
-                dialogue: [{speaker:"A", text:"Hi, I'm Kevin."}, {speaker:"B", text:"Nice to meet you, I'm Lisa."}, {speaker:"A", text:"First time here?"}, {speaker:"B", text:"Yes, it's a nice party."}] 
-            },
-            { 
-                title: "Ordering Coffee", 
-                level: "Beginner (初級)",
-                dialogue: [{speaker:"A", text:"Hi, what can I get you?"}, {speaker:"B", text:"Latte, please."}, {speaker:"A", text:"Hot or iced?"}, {speaker:"B", text:"Iced, thanks."}] 
-            },
-            { 
-                title: "Checking In", 
-                level: "Beginner (初級)",
-                dialogue: [{speaker:"A", text:"Hello, I am checking in."}, {speaker:"B", text:"Name please?"}, {speaker:"A", text:"My name is Smith."}, {speaker:"B", text:"Here is your key."}] 
-            },
-            { 
-                title: "Asking the Time", 
-                level: "Beginner (初級)",
-                dialogue: [{speaker:"A", text:"Excuse me, what time is it?"}, {speaker:"B", text:"It is three o'clock."}, {speaker:"A", text:"Thank you very much."}, {speaker:"B", text:"You are welcome."}] 
-            },
-
-            // LEVEL 2: Intermediate (Solving Problems / Details)
-            { 
-                title: "Asking Directions", 
-                level: "Intermediate (中級)",
-                dialogue: [{speaker:"A", text:"Excuse me, where is the nearest bank?"}, {speaker:"B", text:"Go straight and turn left at the light."}, {speaker:"A", text:"Is it far from here?"}, {speaker:"B", text:"No, it is just a five-minute walk."}] 
-            },
-            { 
-                title: "Making an Appointment", 
-                level: "Intermediate (中級)",
-                dialogue: [{speaker:"A", text:"I would like to see the doctor."}, {speaker:"B", text:"Do you have an appointment?"}, {speaker:"A", text:"No, but it is urgent."}, {speaker:"B", text:"Please wait, I will check the schedule."}] 
-            },
-            { 
-                title: "Shopping Returns", 
-                level: "Intermediate (中級)",
-                dialogue: [{speaker:"A", text:"I would like to return this shirt."}, {speaker:"B", text:"Is there something wrong with it?"}, {speaker:"A", text:"It is too small for me."}, {speaker:"B", text:"Do you have the receipt with you?"}] 
-            },
-            { 
-                title: "Weekend Plans", 
-                level: "Intermediate (中級)",
-                dialogue: [{speaker:"A", text:"What are you doing this weekend?"}, {speaker:"B", text:"I plan to go hiking with friends."}, {speaker:"A", text:"That sounds like a lot of fun."}, {speaker:"B", text:"You should come with us if you want."}] 
-            },
-
-            // LEVEL 3: Advanced (Business / Opinions / Complex)
-            { 
-                title: "Work Call", 
-                level: "Advanced (中高級)",
-                dialogue: [{speaker:"A", text:"Hello, is Mr. Johnson available now?"}, {speaker:"B", text:"He is currently in a meeting."}, {speaker:"A", text:"Could I leave a detailed message?"}, {speaker:"B", text:"Of course, I will make sure he gets it."}] 
-            },
-            { 
-                title: "Discussing a Project", 
-                level: "Advanced (中高級)",
-                dialogue: [{speaker:"A", text:"What do you think about the new proposal?"}, {speaker:"B", text:"I think it has some great potential."}, {speaker:"A", text:"However, the budget seems a bit high."}, {speaker:"B", text:"We might need to negotiate the costs."}] 
-            },
-            { 
-                title: "Restaurant Complaint", 
-                level: "Advanced (中高級)",
-                dialogue: [{speaker:"A", text:"Excuse me, this soup is cold."}, {speaker:"B", text:"I am terribly sorry about that."}, {speaker:"A", text:"Could you please heat it up?"}, {speaker:"B", text:"I will bring you a fresh one immediately."}] 
-            },
-            { 
-                title: "Movie Opinion", 
-                level: "Advanced (中高級)",
-                dialogue: [{speaker:"A", text:"Did you enjoy the movie last night?"}, {speaker:"B", text:"The acting was good, but the story was weak."}, {speaker:"A", text:"I agree, the ending was quite disappointing."}, {speaker:"B", text:"I expected much more from that director."}] 
-            }
-        ];
-
-        // --- GLOBAL VARS ---
-        const synth = window.speechSynthesis;
-        let speechRate = 1.0;
-        let isPlayingDialogue = false;
-        let mediaRecorder;
-        let audioChunks = [];
-        let isRecording = false;
-        
-        // Voice caching
-        let voices = [];
-
-        // --- INIT ---
-        window.onload = function() {
-            Game.init(); // Init Gamification
-            initPart1();
-            initPart2();
-            initPart3();
-            
-            // Force load voices immediately
-            populateVoices();
-            if (speechSynthesis.onvoiceschanged !== undefined) {
-                speechSynthesis.onvoiceschanged = populateVoices;
-            }
-
-            const slider = document.getElementById('speedRange');
-            const speedVal = document.getElementById('speedValue');
-            slider.oninput = function() {
-                speechRate = parseFloat(this.value);
-                speedVal.textContent = speechRate + 'x';
-            }
-        };
-
-        function populateVoices() {
-            voices = synth.getVoices();
-        }
-
-        // --- TABS ---
-        function switchTab(tabId) {
-            document.querySelectorAll('.section-view').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            
-            const buttons = document.querySelectorAll('.tab-btn');
-            if(tabId === 'part1') buttons[0].classList.add('active');
-            if(tabId === 'part2') buttons[1].classList.add('active');
-            if(tabId === 'part3') buttons[2].classList.add('active');
-            stopAudio();
-        }
-
-        function stopAudio() {
-            if (synth.speaking) synth.cancel();
-            isPlayingDialogue = false;
-        }
-
-        function speakText(text, rate = 1.0, event = null) {
-            if (!synth) return;
-            synth.cancel();
-            
-            // Ensure voices are loaded
-            if (voices.length === 0) voices = synth.getVoices();
-
-            const utterance = new SpeechSynthesisUtterance(text);
-            
-            // --- Voice Selection Strategy (語音優化策略) ---
-            // Priority 1: Look for "Natural" (Edge/Modern browsers often have these high quality voices)
-            // Priority 2: Specific high-quality known voices (Google, Microsoft Zira, Samantha, Alex)
-            // Priority 3: Any standard en-US voice
-            
-            let preferredVoice = 
-                voices.find(v => v.name.includes('Natural') && v.lang.includes('en-US')) || // Edge Natural Voices
-                voices.find(v => v.name === 'Google US English') || // Chrome Best
-                voices.find(v => v.name.includes('Microsoft Zira')) || // Windows Standard
-                voices.find(v => v.name.includes('Samantha')) || // Mac Standard
-                voices.find(v => v.name.includes('Alex')) || // Mac High Quality
-                voices.find(v => v.lang === 'en-US'); // Fallback
-
-            if (preferredVoice) {
-                utterance.voice = preferredVoice;
-                // console.log("Using voice:", preferredVoice.name); // For debugging
-            }
-
-            utterance.rate = rate;
-            utterance.pitch = 1.05; // Slightly higher pitch often sounds clearer/friendlier for learning
-            if (!preferredVoice) utterance.lang = 'en-US'; 
-            
-            synth.speak(utterance);
-
-            // Add XP for Listening
-            if(event) Game.addXP(5, event);
-        }
-
-        // --- PART 1 ---
-        function initPart1() {
-            const listContainer = document.getElementById('part1TopicList');
-            part1Data.forEach((item, index) => {
-                const btn = document.createElement('button');
-                btn.className = 'topic-btn';
-                if(index === 0) btn.classList.add('active');
-                btn.innerHTML = `<span>${item.topic}</span><svg class="icon check-icon"><use href="#icon-check"></use></svg>`;
-                btn.onclick = () => loadPart1Topic(index, btn);
-                listContainer.appendChild(btn);
-            });
-            loadPart1Topic(0, listContainer.children[0]);
-        }
-
-        function loadPart1Topic(index, btnElement) {
-            document.querySelectorAll('.topic-btn').forEach(b => b.classList.remove('active'));
-            btnElement.classList.add('active');
-            
-            // Mark as started in gamification
-            Game.markTopicStarted(part1Data[index].topic);
-
-            const data = part1Data[index];
-            document.getElementById('part1CurrentTopicTitle').innerText = data.topic;
-            const area = document.getElementById('part1QuestionsArea');
-            area.innerHTML = '';
-
-            data.questions.forEach((qItem, i) => {
-                const card = document.createElement('div');
-                card.className = 'card qa-card';
-                card.innerHTML = `
-                    <div class="qa-question">Q${i+1}: ${qItem.q}</div>
-                    <button class="btn btn-small btn-outline" style="align-self: flex-start;" onclick="toggleAnswer('ans-${i}', event)">
-                        <svg class="icon"><use href="#icon-eye"></use></svg> Show Answers (+2 XP)
-                    </button>
-                    <div id="ans-${i}" class="qa-answer-box hidden">
-                        <div class="answer-block">
-                            <span class="level-tag l1">Level 1 (初級)</span>
-                            <div class="qa-answer-text">${qItem.a1}</div>
-                            <button class="btn btn-small" onclick="speakText('${qItem.a1.replace(/'/g, "\\'")}', 1.0, event)">
-                                <svg class="icon"><use href="#icon-volume"></use></svg> Listen
-                            </button>
-                        </div>
-                        <div class="answer-block">
-                            <span class="level-tag l2">Level 2 (中級)</span>
-                            <div class="qa-answer-text">${qItem.a2}</div>
-                            <button class="btn btn-small" onclick="speakText('${qItem.a2.replace(/'/g, "\\'")}', 1.0, event)">
-                                <svg class="icon"><use href="#icon-volume"></use></svg> Listen
-                            </button>
-                        </div>
-                    </div>
+                return `
+                  <div class="question-block">
+                    <div class="q-label">${q.label}</div>
+                    <div class="q-answer">${displayAnswer}</div>
+                  </div>
                 `;
-                area.appendChild(card);
-            });
-        }
+              }).join('')}
+            </div>
+          `).join('')}
+          <script>
+            // 等待內容載入後自動開啟列印視窗
+            window.onload = () => { setTimeout(() => window.print(), 500); };
+          </script>
+        </body>
+      </html>
+    `;
 
-        function toggleAnswer(id, event) {
-            const el = document.getElementById(id);
-            el.classList.toggle('hidden');
-            if (!el.classList.contains('hidden')) {
-                Game.addXP(2, event);
-            }
-        }
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
-        // --- PART 2 ---
-        function initPart2() {
-            const select = document.getElementById('part2TopicSelect');
-            
-            // Group options by Level for Part 2 as well
-            const levels = {};
-            part2Data.forEach((item, index) => {
-                const levelKey = `Level ${item.level}`;
-                if (!levels[levelKey]) {
-                    levels[levelKey] = [];
-                }
-                levels[levelKey].push({index: index, topic: item.topic});
-            });
+  // --- Components ---
+  // ChoiceGroup component remains same
+  const ChoiceGroup = ({ question, readOnlyValue = null }) => {
+    const currentValues = readOnlyValue !== null ? readOnlyValue : (formData[question.id] || (question.type === 'checkbox' ? [] : ''));
+    const isMultiple = question.type === 'checkbox';
 
-            // Clear existing options first (though usually empty on load)
-            select.innerHTML = '';
+    return (
+      <div className="space-y-2">
+        {question.options.map((option, optIdx) => {
+          const isOtherOption = option.includes('其他') || option.includes('我想要補充');
+          const displayOptionText = isOtherOption ? '我想要補充...' : option;
+          const otherPrefix = '我想要補充: ';
+          
+          let isSelected;
+          let otherTextValue = '';
 
-            for (const [levelName, items] of Object.entries(levels)) {
-                const group = document.createElement('optgroup');
-                group.label = levelName; // e.g., "Level 1", "Level 2"
-                items.forEach(item => {
-                    const opt = document.createElement('option');
-                    opt.value = item.index;
-                    opt.innerText = item.topic;
-                    group.appendChild(opt);
-                });
-                select.appendChild(group);
-            }
-
-            select.onchange = () => loadPart2Content(select.value);
-            loadPart2Content(0);
-        }
-
-        function loadPart2Content(index) {
-            const data = part2Data[index];
-            const area = document.getElementById('part2Content');
-            area.innerHTML = '';
-            data.sentences.forEach((sentence, idx) => {
-                const sentId = `p2-sent-${idx}`;
-                const div = document.createElement('div');
-                div.className = 'sentence-card';
-                div.innerHTML = `
-                    <span id="${sentId}" class="sentence-text">${sentence}</span>
-                    <div style="display:flex; gap:10px;">
-                        <button class="btn btn-icon-only btn-outline" onclick="toggleSingle('${sentId}')">
-                            <svg class="icon"><use href="#icon-eye"></use></svg>
-                        </button>
-                        <button class="btn btn-small" onclick="speakText('${sentence.replace(/'/g, "\\'")}', speechRate, event)">
-                            <svg class="icon"><use href="#icon-volume"></use></svg>
-                        </button>
-                    </div>
-                `;
-                area.appendChild(div);
-            });
-        }
-
-        function togglePart2TextAll(event) {
-            document.querySelectorAll('.sentence-text').forEach(t => t.classList.toggle('blur-text'));
-            Game.addXP(5, event); // Bulk toggle XP
-        }
-        function toggleSingle(id) {
-            const el = document.getElementById(id);
-            if(el) el.classList.toggle('blur-text');
-        }
-
-        // --- PART 3 ---
-        function initPart3() {
-            const select = document.getElementById('part3Select');
-            
-            // Group options by Level using OptGroup
-            const levels = {};
-            part3Data.forEach((item, index) => {
-                if (!levels[item.level]) {
-                    levels[item.level] = [];
-                }
-                levels[item.level].push({index: index, title: item.title});
-            });
-
-            for (const [levelName, items] of Object.entries(levels)) {
-                const group = document.createElement('optgroup');
-                group.label = levelName;
-                items.forEach(item => {
-                    const opt = document.createElement('option');
-                    opt.value = item.index;
-                    opt.innerText = item.title;
-                    group.appendChild(opt);
-                });
-                select.appendChild(group);
-            }
-
-            loadScenario();
-            document.getElementById('recordBtn').addEventListener('click', toggleRecording);
-        }
-
-        function loadScenario() {
-            stopAudio();
-            const index = document.getElementById('part3Select').value;
-            const data = part3Data[index];
-            const area = document.getElementById('dialogueDisplay');
-            area.innerHTML = '';
-            data.dialogue.forEach(line => {
-                const bubble = document.createElement('div');
-                bubble.className = `bubble ${line.speaker}`;
-                bubble.innerHTML = `<span class="speaker-label">Speaker ${line.speaker}</span>${line.text}`;
-                area.appendChild(bubble);
-            });
-        }
-
-        function toggleDialogueText(event) {
-            const bubbles = document.querySelectorAll('.bubble');
-            bubbles.forEach(b => {
-                if(b.style.color === 'transparent') b.style.color = 'inherit';
-                else b.style.color = 'transparent';
-            });
-            Game.addXP(5, event);
-        }
-
-        async function playCurrentDialogue(event) {
-            stopAudio();
-            if(event) Game.addXP(10, event); // Big XP for dialogue
-            isPlayingDialogue = true;
-            const index = document.getElementById('part3Select').value;
-            const lines = part3Data[index].dialogue;
-            let currentLine = 0;
-            function playNext() {
-                if(!isPlayingDialogue || currentLine >= lines.length) { isPlayingDialogue = false; return; }
-                const text = lines[currentLine].text;
-                speakText(text, 1.0); // Don't add XP for individual lines in dialogue mode
-                const wpm = 100; // approx speed
-                const duration = (text.split(' ').length / wpm) * 60 * 1000 + 1500;
-                currentLine++;
-                setTimeout(playNext, duration);
-            }
-            playNext();
-        }
-
-        async function toggleRecording(event) {
-            const btn = document.getElementById('recordBtn');
-            const status = document.getElementById('recStatus');
-            const errorArea = document.getElementById('recError');
-            errorArea.style.display = 'none';
-
-            if (!isRecording) {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    errorArea.style.display = 'block';
-                    errorArea.innerText = "Browser does not support recording.";
-                    return;
-                }
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
-                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                    mediaRecorder.onstop = () => {
-                        const blob = new Blob(audioChunks, { type: 'audio/wav' });
-                        const url = URL.createObjectURL(blob);
-                        const audio = new Audio(url);
-                        audio.controls = true;
-                        const container = document.getElementById('audioPlaybackArea');
-                        container.innerHTML = '';
-                        container.appendChild(audio);
-                        
-                        // GAMIFICATION: Big reward for recording
-                        Game.addXP(30, event); 
-                    };
-                    mediaRecorder.start();
-                    isRecording = true;
-                    btn.classList.add('recording');
-                    status.innerText = "Recording... (+XP on stop)";
-                } catch (err) {
-                    errorArea.style.display = 'block';
-                    errorArea.innerText = "Mic access denied.";
-                }
+          if (isMultiple) {
+            if (isOtherOption) {
+              const found = Array.isArray(currentValues) ? currentValues.find(v => v.startsWith(otherPrefix) || v === option) : null;
+              isSelected = !!found;
+              otherTextValue = found ? found.replace(otherPrefix, '') : '';
+              if(otherTextValue === option) otherTextValue = ''; 
             } else {
-                mediaRecorder.stop();
-                isRecording = false;
-                btn.classList.remove('recording');
-                status.innerText = "Recording saved.";
+              isSelected = Array.isArray(currentValues) && currentValues.includes(option);
             }
-        }
-    </script>
-</body>
-</html>
+          } else {
+            if (isOtherOption) {
+              isSelected = (typeof currentValues === 'string') && (currentValues.startsWith(otherPrefix) || currentValues === option);
+              otherTextValue = isSelected ? currentValues.replace(otherPrefix, '') : '';
+            } else {
+              isSelected = currentValues === option;
+            }
+          }
+
+          return (
+            <div key={optIdx}>
+              <label className={`flex items-center space-x-3 p-2 rounded cursor-pointer transition-colors ${isSelected ? 'bg-rose-50 border-rose-200' : 'hover:bg-gray-50'}`}>
+                <input
+                  type={isMultiple ? "checkbox" : "radio"}
+                  name={question.id}
+                  value={option}
+                  checked={isSelected}
+                  className={`w-4 h-4 text-rose-600 focus:ring-rose-500 border-gray-300 ${!isMultiple ? 'rounded-full' : 'rounded'}`}
+                  onChange={(e) => {
+                    if (isMultiple) {
+                      handleCheckboxChange(question.id, option, e.target.checked);
+                    } else {
+                      handleInputChange(question.id, option);
+                    }
+                  }}
+                />
+                <span className="text-gray-700">{displayOptionText}</span>
+              </label>
+
+              {isOtherOption && isSelected && (
+                <div className="ml-7 mt-2 pl-2 border-l-2 border-rose-200 animate-fadeIn">
+                  <input
+                    type="text"
+                    className="w-full p-2 bg-rose-50/30 border-b border-rose-300 outline-none text-gray-700 placeholder-gray-400 text-sm rounded-r focus:border-rose-500"
+                    placeholder="請在此輸入補充內容..."
+                    value={otherTextValue}
+                    autoFocus
+                    onChange={(e) => {
+                      const val = `${otherPrefix}${e.target.value}`;
+                      if (isMultiple) {
+                        setFormData(prev => {
+                          const oldArr = prev[question.id] || [];
+                          const filtered = oldArr.filter(v => !v.startsWith(otherPrefix) && !v.startsWith('其他'));
+                          return { ...prev, [question.id]: [...filtered, val] };
+                        });
+                      } else {
+                        handleInputChange(question.id, val);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // --- Views ---
+
+  // 1. Success View
+  if (submitted) {
+    return (
+      <div className="min-h-screen bg-rose-50 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full text-center">
+          <div className="mb-6 flex justify-center">
+            <div className="bg-green-100 p-4 rounded-full">
+              <CheckCircle size={64} className="text-green-600" />
+            </div>
+          </div>
+          <h2 className="text-3xl font-serif font-bold text-gray-800 mb-4">問卷已送出！</h2>
+          <p className="text-gray-600 mb-8">感謝您的填寫，我們會盡快與您聯繫。</p>
+          <button 
+            onClick={() => {
+              setSubmitted(false);
+              setFormData({});
+            }}
+            className="bg-gray-100 text-gray-600 px-6 py-3 rounded-full hover:bg-gray-200 transition-colors"
+          >
+            返回首頁
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Admin Login & Dashboard
+  if (isAdminMode) {
+    // A. Login Screen
+    if (!isLoggedIn) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
+          <div className="bg-white p-8 rounded-xl shadow-lg max-w-sm w-full">
+            <div className="flex justify-center mb-4 text-gray-700">
+              <Lock size={48} />
+            </div>
+            <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">後台管理登入</h2>
+            <form onSubmit={handleAdminLogin}>
+              <div className="mb-4">
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="請輸入管理員密碼"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                  autoFocus
+                />
+              </div>
+              {loginError && <p className="text-red-500 text-sm mb-4 text-center">密碼錯誤，請重試。</p>}
+              <button 
+                type="submit"
+                className="w-full bg-gray-800 text-white py-3 rounded-lg hover:bg-gray-900 transition-colors font-bold"
+              >
+                登入
+              </button>
+              <button 
+                type="button"
+                onClick={() => setIsAdminMode(false)}
+                className="w-full mt-3 text-gray-500 py-2 text-sm hover:text-gray-700"
+              >
+                返回問卷首頁
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // B. Response Detail View
+    if (selectedResponse) {
+      return (
+        <div className="min-h-screen bg-gray-100 font-sans">
+          {/* Header */}
+          <div className="bg-white shadow border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
+            <button 
+              onClick={() => setSelectedResponse(null)}
+              className="flex items-center text-gray-600 hover:text-gray-900"
+            >
+              <ChevronLeft size={20} /> 返回列表
+            </button>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => exportToWord(selectedResponse)}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                <FileText size={18} /> 匯出 Word
+              </button>
+              <button 
+                onClick={() => printResponse(selectedResponse)}
+                className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900"
+              >
+                <Printer size={18} /> 列印 / 下載 PDF
+              </button>
+            </div>
+          </div>
+
+          <div className="max-w-4xl mx-auto p-8 bg-white my-8 shadow-lg">
+            <div className="text-center border-b-2 border-gray-800 pb-6 mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">婚禮主持問卷資料</h1>
+              <p className="text-gray-600">
+                提交時間: {selectedResponse.submittedAt?.seconds ? new Date(selectedResponse.submittedAt.seconds * 1000).toLocaleString('zh-TW') : '未知'}
+              </p>
+            </div>
+
+            <div className="space-y-8">
+              {sections.map(section => (
+                <div key={section.id}>
+                  <h3 className="text-xl font-bold text-gray-800 border-l-4 border-rose-500 pl-3 mb-4 bg-gray-50 py-1">
+                    {section.title}
+                  </h3>
+                  <div className="grid gap-4 pl-4">
+                    {section.questions.map(q => {
+                      const answer = selectedResponse.formData[q.id];
+                      let displayAnswer = <span className="text-gray-400 italic">未填寫</span>;
+                      
+                      if (Array.isArray(answer) && answer.length > 0) {
+                        displayAnswer = (
+                          <ul className="list-disc list-inside text-gray-800 font-medium">
+                            {answer.map((a, i) => <li key={i}>{a}</li>)}
+                          </ul>
+                        );
+                      } else if (answer) {
+                        displayAnswer = <p className="text-gray-800 font-medium whitespace-pre-wrap">{answer}</p>;
+                      }
+
+                      return (
+                        <div key={q.id} className="mb-2">
+                          <p className="text-sm text-gray-500 mb-1">{q.label}</p>
+                          <div className="p-2 bg-gray-50 rounded border border-gray-100">
+                            {displayAnswer}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // C. Dashboard List View
+    return (
+      <div className="min-h-screen bg-gray-50 font-sans">
+        <nav className="bg-white shadow px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+             <ClipboardList className="text-rose-500" />
+             <h1 className="text-xl font-bold text-gray-800">婚禮問卷後台管理</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <button onClick={fetchResponses} className="text-sm text-blue-600 hover:underline">重新整理</button>
+            <button 
+              onClick={() => {
+                setIsLoggedIn(false);
+                setPasswordInput('');
+                setIsAdminMode(false);
+              }}
+              className="flex items-center gap-1 text-gray-500 hover:text-red-500 transition-colors"
+            >
+              <LogOut size={18} /> 登出
+            </button>
+          </div>
+        </nav>
+
+        <div className="max-w-5xl mx-auto p-6">
+          {isLoadingData ? (
+            <div className="text-center py-12 text-gray-500">載入資料中...</div>
+          ) : responses.length === 0 ? (
+            <div className="bg-white rounded-xl shadow p-12 text-center">
+              <div className="flex justify-center mb-4">
+                <FileText size={48} className="text-gray-300" />
+              </div>
+              <p className="text-gray-500 text-lg">目前還沒有任何問卷回覆。</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {responses.map(response => (
+                <div 
+                  key={response.id} 
+                  onClick={() => setSelectedResponse(response)}
+                  className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-transparent hover:border-rose-200 group"
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-800 group-hover:text-rose-600 transition-colors">
+                        {response.groomName} & {response.brideName}
+                      </h3>
+                      <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                        <span className="flex items-center gap-1"><Calendar size={14}/> 婚禮: {response.weddingDate}</span>
+                        <span className="flex items-center gap-1"><Download size={14}/> 提交於: {response.submittedAt?.seconds ? new Date(response.submittedAt.seconds * 1000).toLocaleDateString() : '未知'}</span>
+                      </div>
+                    </div>
+                    <ChevronLeft size={24} className="text-gray-300 transform rotate-180" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Public Form View (Default)
+  return (
+    <div className="min-h-screen bg-rose-50/50 py-12 px-4 font-sans selection:bg-rose-200">
+      <div className="max-w-3xl mx-auto relative">
+        {/* Only checking if firebaseConfig is placeholder to show warning */}
+        {firebaseConfig.apiKey === "請替換成您的_API_KEY" && (
+            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4" role="alert">
+                <p className="font-bold">設定提醒</p>
+                <p>請記得修改程式碼中的 firebaseConfig，填入您自己的 Firebase 專案設定，否則無法送出問卷。</p>
+            </div>
+        )}
+
+        {/* Header */}
+        <div className="bg-white rounded-t-2xl shadow-lg border-t-8 border-rose-400 p-8 mb-6 text-center relative">
+          <div className="flex justify-center mb-4">
+            <Sparkles className="text-rose-400" size={40} />
+          </div>
+          <h1 className="text-3xl md:text-4xl font-serif font-bold text-gray-800 mb-4">
+            新人婚禮主持風格與個人細節問卷
+          </h1>
+          <p className="text-gray-600 leading-relaxed">
+            親愛的新人您好，為了讓您的婚禮更加完美，請協助我們填寫以下問卷。
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          
+          {sections.map((section, sIdx) => (
+            <div key={section.id} className="bg-white rounded-xl shadow-md p-6 mb-6 transition-all hover:shadow-lg">
+              {/* Section Title */}
+              <div className="flex items-center gap-3 mb-6 mt-2 border-b border-rose-200 pb-2">
+                <div className="p-2 bg-rose-100 rounded-full text-rose-600">
+                  <section.icon size={24} />
+                </div>
+                <h2 className="text-xl font-serif font-bold text-gray-800">{section.title}</h2>
+              </div>
+
+              {/* Questions Loop */}
+              <div className="space-y-6">
+                {section.questions.map((q, qIdx) => (
+                  <div key={q.id} className="relative group p-4 rounded-lg border border-transparent bg-white">
+                    {/* 題目 Label */}
+                    <div className="mb-3">
+                      <label className="block text-gray-700 font-medium text-lg">
+                        {q.label}
+                        {q.type === 'checkbox' && <span className="text-sm text-rose-500 ml-2 font-normal">(可複選)</span>}
+                      </label>
+                    </div>
+
+                    {/* 題目 Content */}
+                    <div>
+                      {q.type === 'text' || q.type === 'date' ? (
+                        <input
+                          type={q.type}
+                          className="w-full p-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-rose-200 outline-none bg-white transition-all"
+                          onChange={(e) => handleInputChange(q.id, e.target.value)}
+                        />
+                      ) : q.type === 'textarea' ? (
+                        <textarea
+                          className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-rose-200 outline-none min-h-[100px] transition-all"
+                          placeholder="請在此輸入..."
+                          onChange={(e) => handleInputChange(q.id, e.target.value)}
+                        />
+                      ) : (
+                         <ChoiceGroup question={q} />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Submit Button */}
+          <div className="mt-12 flex flex-col items-center justify-center pb-12 gap-6">
+            <button 
+              type="submit"
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 bg-rose-500 text-white font-bold py-4 px-12 rounded-full shadow-lg transform transition hover:scale-105 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : 'hover:bg-rose-600'}`}
+            >
+              {isSubmitting ? '提交中...' : <><Send size={20} /> 提交問卷</>}
+            </button>
+
+            {/* Admin Login Link */}
+            <button
+              type="button"
+              onClick={() => setIsAdminMode(true)}
+              className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+            >
+              <Lock size={12} /> 後台管理
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default WeddingSurveyForm;
